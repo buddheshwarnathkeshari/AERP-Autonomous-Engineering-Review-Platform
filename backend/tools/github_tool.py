@@ -99,6 +99,44 @@ async def fetch_pr_data(pr_url: str) -> dict:
     }
 
 
+async def post_pr_comments(pr_url: str, findings: list) -> str:
+    """
+    Posts the final review findings as a general issue comment on the PR.
+    """
+    owner, repo_name, pr_number = parse_pr_url(pr_url)
+    logger.info("Posting review comments to GitHub", owner=owner, repo=repo_name, pr=pr_number)
+
+    gh = get_github_client()
+    repo = gh.get_repo(f"{owner}/{repo_name}")
+    pr = repo.get_pull(pr_number)
+
+    if not findings:
+        body = "## AERP Code Review\n\n✅ Everything looks good! No major issues found."
+    else:
+        body = "## AERP Code Review Findings\n\n"
+        for finding in findings:
+            # We assume findings are instances of CodeFinding Pydantic models
+            title = getattr(finding, "title", "Issue")
+            severity = getattr(finding, "severity", "medium").upper()
+            desc = getattr(finding, "description", "")
+            file_path = getattr(finding, "file_path", "General")
+            
+            body += f"### [{severity}] {title}\n"
+            body += f"**File:** `{file_path}`\n\n"
+            body += f"{desc}\n\n"
+            
+            if hasattr(finding, "evidence") and finding.evidence:
+                body += f"**Evidence:**\n```\n{finding.evidence}\n```\n\n"
+
+    try:
+        comment = pr.create_issue_comment(body)
+        logger.info("Comment posted successfully", url=comment.html_url)
+        return comment.html_url
+    except GithubException as e:
+        logger.error("Failed to post comment", error=str(e))
+        return f"Error: {e.data}"
+
+
 # ── LangChain Tools (for agent use) ──────────────────────────────────────────
 # These tools are given to agents so they can fetch specific data on demand.
 

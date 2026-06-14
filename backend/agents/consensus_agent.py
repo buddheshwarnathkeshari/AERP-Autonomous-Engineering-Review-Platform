@@ -1,7 +1,7 @@
 """backend/agents/consensus_agent.py"""
 
 import time
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from backend.models.findings import ConsensusReport
@@ -47,12 +47,11 @@ class ConsensusAgent:
             ]
 
             # 3. Call LLM with structured output (ConsensusReport)
-            llm = ChatGoogleGenerativeAI(
-                model=settings.gemini_model,
-                google_api_key=settings.google_api_key,
-                temperature=0,  # Deterministic synthesis
-                max_retries=3,
-            ).with_structured_output(ConsensusReport)
+            from backend.utils.llm_factory import get_llm
+            base_llm = get_llm(temperature=0.0)
+            if not base_llm:
+                raise ValueError("Failed to initialize LLM for consensus.")
+            llm = base_llm.with_structured_output(ConsensusReport)
 
             import os
             if os.environ.get("MOCK_LLM") == "1":

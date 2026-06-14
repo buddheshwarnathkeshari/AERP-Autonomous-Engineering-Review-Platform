@@ -51,7 +51,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain import hub
@@ -108,25 +108,12 @@ class BaseAgent(ABC):
 
     def _build_llm(self):
         """
-        Creates the Gemini LLM configured for structured output.
-
-        WHY with_structured_output?
-          Without it, Gemini returns a string like "I found 2 issues..."
-          With it, Gemini MUST return a valid AgentReport JSON object.
-          LangChain enforces the schema — if the LLM returns garbage, it retries.
-
-        WHY temperature=0?
-          Temperature controls randomness (0=deterministic, 1=creative).
-          For code review, we want CONSISTENT, REPRODUCIBLE output.
-          The same PR reviewed twice should produce the same findings.
-          Low temperature = more factual, less hallucination.
+        Creates the LLM configured for structured output via llm_factory.
         """
-        llm = ChatGoogleGenerativeAI(
-            model=settings.gemini_model,
-            google_api_key=settings.google_api_key,
-            temperature=0,                    # Deterministic output
-            max_retries=3,                    # Retry on API errors
-        )
+        from backend.utils.llm_factory import get_llm
+        llm = get_llm(temperature=0.0)
+        if not llm:
+            raise ValueError("Failed to initialize LLM. Check API keys.")
         # Bind the Pydantic model as the required output schema
         return llm.with_structured_output(AgentReport)
 
@@ -188,12 +175,9 @@ class BaseAgent(ABC):
 
             # For agents with tools: use bind_tools to enable tool calling
             # The LLM will autonomously decide when to call search_context
-            llm_with_tools = ChatGoogleGenerativeAI(
-                model=settings.gemini_model,
-                google_api_key=settings.google_api_key,
-                temperature=0,
-                max_retries=3,
-            ).bind_tools(tools)
+            from backend.utils.llm_factory import get_llm
+            base_llm = get_llm(temperature=0.0)
+            llm_with_tools = base_llm.bind_tools(tools)
 
             # Run the ReAct loop: think → (optionally) use tools → final answer
             # We implement a simple loop: first get tool calls, execute, then

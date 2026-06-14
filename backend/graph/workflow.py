@@ -70,6 +70,9 @@ from backend.graph.nodes import (
     blast_radius_node,
     # Phase 5
     consensus_node,
+    # Phase 6
+    hitl_node,
+    output_node,
 )
 from backend.config.settings import get_settings
 
@@ -88,21 +91,10 @@ AGENT_NODES = [
 ]
 
 
-async def hitl_stub_node(state: ReviewState) -> dict:
-    """
-    Placeholder for the Phase 6 Human-in-the-Loop node.
-    For now, it just marks the review as hitl_required but passes through.
-    """
-    import structlog
-    logger = structlog.get_logger()
-    logger.warning("HITL required! (Phase 6 will pause here)", review_id=state["review_id"])
-    return {"hitl_required": True}
-
-
 def route_after_consensus(state: ReviewState) -> str:
     """
     Conditional edge logic after the consensus agent finishes.
-    If risk_score > 40, go to HITL. Otherwise, Auto-Approve.
+    If risk_score > 40, go to HITL. Otherwise, Auto-Approve (go to Output).
     """
     import structlog
     logger = structlog.get_logger()
@@ -110,12 +102,13 @@ def route_after_consensus(state: ReviewState) -> str:
     result = state.get("consensus_result", {})
     score = result.get("risk_score", 0)
 
+    # In mock mode, we force the risk score to be 75, which triggers HITL
     if score > 40:
         logger.info("Routing to HITL (High Risk)", score=score)
         return "hitl"
     else:
-        logger.info("Routing to END (Auto-Approve)", score=score)
-        return "end"
+        logger.info("Routing to Output (Auto-Approve)", score=score)
+        return "output"
 
 
 def create_workflow(checkpointer=None):
@@ -138,9 +131,12 @@ def create_workflow(checkpointer=None):
     builder.add_node("architecture", architecture_node)
     builder.add_node("blast_radius", blast_radius_node)
 
-    # Phase 5 Consensus + Phase 6 HITL stub
+    # Phase 5 Consensus
     builder.add_node("consensus", consensus_node)
-    builder.add_node("hitl", hitl_stub_node)
+    
+    # Phase 6 HITL and Output
+    builder.add_node("hitl", hitl_node)
+    builder.add_node("output", output_node)
 
     # ── Define edges ──────────────────────────────────────────────────────────
     builder.add_edge(START, "context_collector")
@@ -154,29 +150,23 @@ def create_workflow(checkpointer=None):
     for agent_node in AGENT_NODES:
         builder.add_edge(agent_node, "consensus")
 
-    # Conditional Routing: consensus → hitl or END
+    # Conditional Routing: consensus → hitl or output
     builder.add_conditional_edges(
         "consensus",
         route_after_consensus,
         {
             "hitl": "hitl",
-            "end": END,
+            "output": "output",
         }
     )
 
-    builder.add_edge("hitl", END)
+    builder.add_edge("hitl", "output")
+    builder.add_edge("output", END)
 
     # ── Compile ───────────────────────────────────────────────────────────────
-    graph = builder.compile(checkpointer=checkpointer)
+    graph = builder.compile(checkpointer=checkpointer, interrupt_before=["hitl"])
     return graph
 
 
-def get_redis_checkpointer():
-    """
-    Creates a Redis-backed checkpointer for HITL state persistence.
-    """
-    return RedisSaver.from_conn_string(settings.redis_url)
-
-
-# Module-level compiled graph
+# Module-level compiled graph (without checkpointer, mainly for visualizer)
 workflow = create_workflow(checkpointer=None)

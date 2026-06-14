@@ -354,6 +354,42 @@ async def consensus_node(state: ReviewState) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PHASE 6 NODES: HITL & Output
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def hitl_node(state: ReviewState) -> dict:
+    """
+    Human-in-the-Loop (HITL) node.
+    LangGraph pauses execution BEFORE this node runs (via interrupt_before).
+    When the human approves/rejects via the API, the workflow resumes here.
+    """
+    logger.info("HITL node executing (workflow resumed by human)", review_id=state["review_id"])
+    # In a fully fleshed out system, we would read the human's decision from the state
+    # and maybe override the recommendation or findings.
+    return {"hitl_required": True}
+
+
+async def output_node(state: ReviewState) -> dict:
+    """
+    Posts the final review findings to the GitHub PR.
+    Runs after Consensus (if auto-approved) or after HITL (if manually approved).
+    """
+    logger.info("Running Output Node", review_id=state["review_id"])
+    
+    consensus = state.get("consensus_result", {})
+    findings = consensus.get("final_findings", [])
+    
+    try:
+        from backend.tools.github_tool import post_pr_comments
+        comment_url = await post_pr_comments(state["pr_url"], findings)
+        logger.info("Successfully posted to GitHub", url=comment_url)
+    except Exception as e:
+        logger.error("Failed to post comments to GitHub", error=str(e))
+        
+    return {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helper: Empty agent result (used when PR metadata is missing)
 # ─────────────────────────────────────────────────────────────────────────────
 

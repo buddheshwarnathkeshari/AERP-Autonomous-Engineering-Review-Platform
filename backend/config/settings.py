@@ -17,6 +17,7 @@ INTERVIEW CONCEPT — "Fail Fast":
   You want config errors to surface immediately, not during a live review.
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -36,9 +37,21 @@ class Settings(BaseSettings):
     )
 
     # ── LLM Settings ──────────────────────────────────────────────────────────
+    # LLM Settings
+    llm_provider: str = Field(default="gemini", description="gemini, openai, anthropic")
+    
+    # Gemini
     google_api_key: str
-    gemini_model: str = "gemini-2.0-flash"
-    gemini_embedding_model: str = "models/text-embedding-004"
+    gemini_model: str = Field(default="gemini-2.5-flash")
+    gemini_embedding_model: str = Field(default="models/embedding-001")
+    
+    # OpenAI
+    openai_api_key: str = Field(default="")
+    openai_model: str = Field(default="gpt-4o")
+    
+    # Anthropic
+    anthropic_api_key: str = Field(default="")
+    anthropic_model: str = Field(default="claude-3-5-sonnet-latest")
 
     # ── Database Settings ─────────────────────────────────────────────────────
     database_url: str
