@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml
+#
+# WHAT IS DOCKER COMPOSE?
+# It lets you define and run multiple containers with a single command.
+# Instead of manually starting Postgres, Redis, and FastAPI separately,
+# `docker compose up` starts everything together and wires them up.
+#
+# SERVICES WE RUN:
+#   postgres  → Our database (PostgreSQL + pgvector extension)
+#   redis     → Cache + message broker (for Celery + LangGraph checkpoints)
+#   api       → FastAPI application
+#   worker    → Celery worker (runs LangGraph workflows in background)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL with pgvector extension ────────────────────────────────────
+  # WHY pgvector image instead of plain postgres?
+  # The pgvector/pgvector image pre-installs the pgvector extension.
+  # Plain postgres requires manual extension installation steps.
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aerp_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"           # host:container — lets you connect from your machine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data    # data survives container restarts
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql  # runs on first start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  # Used for TWO separate purposes:
+  #   1. Celery broker — stores the task queue (which workflows to run)
+  #   2. LangGraph checkpointer — stores paused workflow state (HITL save-game)
+  # They use different Redis key prefixes so they don't interfere.
+  redis:
+    image: redis:7-alpine
+    container_name: aerp_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Application ────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aerp_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - JIRA_SERVER=${JIRA_SERVER}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+      - GEMINI_MODEL=${GEMINI_MODEL}
+      - GEMINI_EMBEDDING_MODEL=${GEMINI_EMBEDDING_MODEL}
+      - APP_ENV=${APP_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - MIN_CONFIDENCE_FOR_PR_COMMENT=${MIN_CONFIDENCE_FOR_PR_COMMENT}
+      - AGENT_MAX_ITERATIONS=${AGENT_MAX_ITERATIONS}
+      - HITL_RISK_THRESHOLD=${HITL_RISK_THRESHOLD}
+    volumes:
+      - ./backend:/app/backend    # live reload in development
+      - ./credentials:/app/credentials
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── Celery Worker ──────────────────────────────────────────────────────────
+  # WHY A SEPARATE WORKER CONTAINER?
+  # The FastAPI server handles HTTP requests (fast, < 100ms).
+  # LangGraph workflows take 5-10 minutes.
+  # You cannot run a 10-minute task inside a web request.
+  # The worker runs independently, picking tasks from the Redis queue.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aerp_worker
+    restart: unless-stopped
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - JIRA_SERVER=${JIRA_SERVER}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+      - GEMINI_MODEL=${GEMINI_MODEL}
+      - GEMINI_EMBEDDING_MODEL=${GEMINI_EMBEDDING_MODEL}
+      - APP_ENV=${APP_ENV}
+      - MIN_CONFIDENCE_FOR_PR_COMMENT=${MIN_CONFIDENCE_FOR_PR_COMMENT}
+      - AGENT_MAX_ITERATIONS=${AGENT_MAX_ITERATIONS}
+      - HITL_RISK_THRESHOLD=${HITL_RISK_THRESHOLD}
+    volumes:
+      - ./backend:/app/backend
+      - ./credentials:/app/credentials
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A backend.tasks.celery_app worker --loglevel=info --concurrency=2
+
+# ── Named Volumes ─────────────────────────────────────────────────────────────
+# Named volumes persist data outside containers.
+# Even if you delete and recreate containers, your data survives.
+volumes:
+  postgres_data:
+  redis_data:
