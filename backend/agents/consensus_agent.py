@@ -54,7 +54,28 @@ class ConsensusAgent:
                 max_retries=3,
             ).with_structured_output(ConsensusReport)
 
-            report: ConsensusReport = await llm.ainvoke(messages)
+            import os
+            if os.environ.get("MOCK_LLM") == "1":
+                from backend.models.findings import CodeFinding, Severity, Recommendation
+                report = ConsensusReport(
+                    final_findings=[
+                        CodeFinding(
+                            title="Mock Consensus Finding",
+                            severity=Severity.HIGH,
+                            confidence=0.95,
+                            description="Aggregated mock finding.",
+                            evidence="Mock evidence",
+                            file_path="src/main.py",
+                            line_number=42,
+                        )
+                    ],
+                    risk_score=75,
+                    overall_assessment="High risk detected by mock consensus.",
+                    recommendation=Recommendation.REQUEST_CHANGES,
+                    confidence_in_assessment=0.95,
+                )
+            else:
+                report: ConsensusReport = await llm.ainvoke(messages)
 
             elapsed = round(time.time() - start_time, 2)
             logger.info(
