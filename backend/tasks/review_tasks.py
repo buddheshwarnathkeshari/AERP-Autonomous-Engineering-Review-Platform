@@ -74,7 +74,7 @@ def run_review_task(self, review_id: str, pr_url: str, jira_url: str = None, doc
                 # Check if the workflow is paused
                 graph_state = await wf.aget_state(config)
                 if graph_state.next:
-                    return None, "paused"
+                    return graph_state.values, "paused"
                 return graph_state.values, "completed"
 
         # asyncio.run bridges the sync Celery task and async LangGraph graph
@@ -84,6 +84,13 @@ def run_review_task(self, review_id: str, pr_url: str, jira_url: str = None, doc
             # The workflow paused at the HITL node!
             asyncio.run(_update_review_status(review_id, "paused_for_review"))
             logger.warning("Workflow paused for Human-in-the-Loop review", review_id=review_id)
+            
+            # Send Slack notification
+            consensus_res = final_state.get("consensus_result") or {}
+            risk_score = consensus_res.get("risk_score", 0)
+            from backend.utils.slack_tool import send_slack_notification
+            asyncio.run(send_slack_notification(review_id, pr_url, risk_score))
+            
             return {"status": "paused_for_review", "review_id": review_id}
 
         # Check if workflow completed with an error
