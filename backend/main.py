@@ -71,7 +71,7 @@ app = FastAPI(
 # CORS headers tell the browser: "this origin is allowed to call this API"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"] if settings.is_development else [],
+    allow_origins=["http://localhost:3000", "http://localhost:5173"] if settings.is_development else [],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

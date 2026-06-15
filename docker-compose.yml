@@ -146,6 +146,19 @@ services:
         condition: service_healthy
     command: celery -A backend.tasks.celery_app worker --loglevel=info --concurrency=2
 
+  # ── React Frontend ─────────────────────────────────────────────────────────
+  frontend:
+    image: node:20-alpine
+    container_name: aerp_frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    command: npm run dev -- --host
+
 # ── Named Volumes ─────────────────────────────────────────────────────────────
 # Named volumes persist data outside containers.
 # Even if you delete and recreate containers, your data survives.
