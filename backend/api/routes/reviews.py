@@ -260,4 +260,8 @@ async def approve_review(review_id: str, request: ApproveReviewRequest):
     finally:
         await conn.close()
         
-    return {"status": "resumed_and_completed", "review_id": review_id}
+    # Trigger Phase 7 Documentation and Test Agent generation
+    from backend.tasks.review_tasks import generate_artifacts_task
+    generate_artifacts_task.delay(review_id)
+    
+    return {"message": "Review resumed and completed successfully. Artifact generation started.", "review_id": review_id}

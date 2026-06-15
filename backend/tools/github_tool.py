@@ -154,6 +154,64 @@ async def post_pr_comments(pr_url: str, findings: list) -> str:
         logger.error("Failed to post comment", error=str(e))
         return f"Error: {e.data}"
 
+async def get_file_content(repo_owner: str, repo_name: str, file_path: str, branch: str) -> str:
+    """
+    Fetches the raw content of a specific file from a GitHub repository.
+    """
+    if repo_owner == "fake":
+        return f"# Mock content for {file_path}\ndef mock_func():\n    pass\n"
+        
+    gh = get_github_client()
+    try:
+        repo = gh.get_repo(f"{repo_owner}/{repo_name}")
+        contents = repo.get_contents(file_path, ref=branch)
+        # Contents can be a list if it's a directory, but we assume a single file
+        return contents.decoded_content.decode("utf-8")
+    except GithubException as e:
+        logger.error("Failed to fetch file content", file_path=file_path, error=str(e))
+        return ""
+
+async def create_pull_request(repo_owner: str, repo_name: str, branch_name: str, base_branch: str, title: str, body: str, files: dict) -> str:
+    """
+    Creates a new branch, commits the given files, and opens a Pull Request.
+    `files` is a dict of {filepath: content}
+    """
+    logger.info("Creating new Pull Request", repo=f"{repo_owner}/{repo_name}", branch=branch_name)
+    if repo_owner == "fake":
+        logger.info("Mock PR detected. Skipping actual GitHub API call for PR creation.")
+        return f"https://github.com/fake/repo/pull/999"
+        
+    gh = get_github_client()
+    try:
+        repo = gh.get_repo(f"{repo_owner}/{repo_name}")
+        
+        # 1. Get base branch commit SHA
+        base = repo.get_branch(base_branch)
+        
+        # 2. Create new branch
+        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=base.commit.sha)
+        
+        # 3. Commit files
+        for file_path, content in files.items():
+            repo.create_file(
+                path=file_path,
+                message=f"Auto-generated {file_path}",
+                content=content,
+                branch=branch_name
+            )
+            
+        # 4. Open PR
+        pr = repo.create_pull(
+            title=title,
+            body=body,
+            head=branch_name,
+            base=base_branch
+        )
+        logger.info("Pull Request created successfully", url=pr.html_url)
+        return pr.html_url
+    except GithubException as e:
+        logger.error("Failed to create PR", error=str(e))
+        return f"Error: {e.data}"
 
 # ── LangChain Tools (for agent use) ──────────────────────────────────────────
 # These tools are given to agents so they can fetch specific data on demand.
