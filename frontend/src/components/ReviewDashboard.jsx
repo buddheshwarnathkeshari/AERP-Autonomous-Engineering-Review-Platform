@@ -153,7 +153,28 @@ export default function ReviewDashboard() {
             <h2 style={{ margin: 0 }}>Review</h2>
             <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', fontFamily: 'monospace', color: 'var(--text-muted)' }}>{id}</p>
           </div>
-          <StatusBadge status={review.status} />
+          <div className="flex items-center gap-4">
+            {ACTIVE_STATUSES.has(review.status) && (
+              <button 
+                onClick={async () => {
+                  if(window.confirm("Are you sure you want to abort this review? This will forcefully stop the AI agents.")) {
+                    try {
+                      await axios.post(`${API_BASE}/reviews/${id}/cancel`);
+                      fetchStatus();
+                    } catch (e) {
+                      alert("Failed to abort the review.");
+                    }
+                  }
+                }}
+                className="btn btn-danger"
+                style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }}
+                title="Stop AI execution immediately"
+              >
+                Abort Review
+              </button>
+            )}
+            <StatusBadge status={review.status} />
+          </div>
         </div>
         
         <div className="flex gap-6" style={{ fontSize: '0.875rem', flexWrap: 'wrap' }}>
@@ -169,6 +190,14 @@ export default function ReviewDashboard() {
             <span style={{ color: 'var(--text-secondary)' }}>Started: </span>
             {new Date(review.created_at).toLocaleString()}
           </div>
+          {review.llm_provider && (
+            <div>
+              <span style={{ color: 'var(--text-secondary)' }}>Model: </span>
+              <span style={{ textTransform: 'capitalize', color: 'var(--text-primary)' }}>
+                {review.llm_provider === 'ollama' ? review.llm_model : review.llm_provider}
+              </span>
+            </div>
+          )}
           {review.risk_score != null && (
             <div>
               <span style={{ color: 'var(--text-secondary)' }}>Risk Score: </span>
@@ -314,6 +343,7 @@ function StatusBadge({ status }) {
     resuming: ['badge-running', 'Resuming'],
     complete: ['badge-complete', 'Complete'],
     failed: ['badge-paused', 'Failed'],
+    cancelled: ['badge-paused', 'Cancelled'],
   }
   const [cls, label] = map[status] || ['badge-pending', status]
   return <span className={`badge ${cls}`}>{label}</span>

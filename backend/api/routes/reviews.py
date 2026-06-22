@@ -82,12 +82,19 @@ async def start_review(request: StartReviewRequest):
         await conn.close()
 
     # Enqueue the Celery task (non-blocking — returns immediately)
-    run_review_task.delay(
+    task = run_review_task.delay(
         review_id=review_id,
         pr_url=request.pr_url,
         jira_url=request.jira_url,
         doc_url=request.doc_url,
     )
+
+    # Save the task ID so we can cancel it later
+    conn = await asyncpg.connect(conn_string)
+    try:
+        await conn.execute("UPDATE reviews SET task_id = $1 WHERE id = $2", task.id, review_id)
+    finally:
+        await conn.close()
 
     return StartReviewResponse(
         review_id=review_id,
@@ -111,7 +118,8 @@ async def get_review_status(review_id: str):
         row = await conn.fetchrow(
             """
             SELECT id, status, created_at, updated_at,
-                   completed_at, risk_score, recommendation, error
+                   completed_at, risk_score, recommendation, error,
+                   llm_provider, llm_model
             FROM reviews WHERE id = $1
             """,
             review_id,
@@ -134,8 +142,50 @@ async def get_review_status(review_id: str):
         risk_score=row.get("risk_score"),
         recommendation=row.get("recommendation"),
         error=row.get("error"),
+        llm_provider=row.get("llm_provider"),
+        llm_model=row.get("llm_model"),
     )
 
+
+@router.post("/{review_id}/cancel")
+async def cancel_review(review_id: str):
+    """
+    Forcefully cancels an ongoing review by terminating the Celery task.
+    """
+    conn_string = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(conn_string)
+    try:
+        row = await conn.fetchrow("SELECT task_id, status FROM reviews WHERE id = $1", review_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Review not found")
+        
+        if row["status"] in ["complete", "failed", "cancelled"]:
+            return {"message": f"Review is already {row['status']}."}
+            
+        task_id = row.get("task_id")
+        if task_id:
+            from backend.tasks.celery_app import celery_app
+            logger.warning("Revoking and terminating Celery task", task_id=task_id, review_id=review_id)
+            celery_app.control.revoke(task_id, terminate=True)
+            
+        await conn.execute("UPDATE reviews SET status = 'cancelled', updated_at = NOW() WHERE id = $1", review_id)
+        
+        # Add a log entry so the UI websocket knows it's cancelled
+        await conn.execute(
+            """
+            INSERT INTO review_logs (review_id, agent_name, status, message)
+            VALUES ($1, 'System', 'cancelled', 'Review was forcefully aborted by user.')
+            """,
+            review_id
+        )
+        
+        from backend.utils.pubsub import get_redis_client
+        client = get_redis_client()
+        client.publish(f"review:{review_id}:progress", "SYSTEM: Review aborted by user.")
+        
+        return {"message": "Review successfully cancelled."}
+    finally:
+        await conn.close()
 
 @router.get("/health")
 async def health_check():
@@ -237,7 +287,7 @@ async def list_reviews(limit: int = 20):
     try:
         rows = await conn.fetch(
             """
-            SELECT id, pr_url, status, risk_score, created_at
+            SELECT id, pr_url, status, risk_score, created_at, llm_provider, llm_model
             FROM reviews
             ORDER BY created_at DESC
             LIMIT $1

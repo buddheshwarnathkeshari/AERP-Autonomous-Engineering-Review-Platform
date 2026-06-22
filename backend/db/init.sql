@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS reviews (
     completed_at    TIMESTAMPTZ,
     error           TEXT,
     llm_provider    TEXT,
-    llm_model       TEXT
+    llm_model       TEXT,
+    task_id         TEXT
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
