@@ -228,3 +228,71 @@ async def _update_review_complete(review_id: str, risk_score: int, recommendatio
         )
     finally:
         await conn.close()
+
+@celery_app.task(bind=True, name="aerp.generate_artifacts", max_retries=3, soft_time_limit=300)
+def generate_artifacts_task(self, review_id: str):
+    """
+    Runs Documentation Agent and Test Agent in parallel and creates PRs.
+    Triggered after human approval.
+    """
+    logger.info("Generating artifacts for approved review", review_id=review_id)
+    
+    async def _run_agents():
+        from backend.agents.documentation_agent import generate_documentation
+        from backend.agents.test_agent import generate_tests
+        from backend.tools.github_tool import create_pull_request
+        from langgraph.checkpoint.redis import AsyncRedisSaver
+        from backend.graph.workflow import create_workflow
+        
+        config = {"configurable": {"thread_id": review_id}}
+        async with AsyncRedisSaver.from_conn_string(settings.redis_url) as checkpointer:
+            wf = create_workflow(checkpointer)
+            state_snapshot = await wf.aget_state(config)
+            
+            if not state_snapshot or not state_snapshot.values:
+                logger.error("State not found in checkpointer", review_id=review_id)
+                return
+            
+            state = state_snapshot.values
+            pr_metadata = state.get("pr_metadata", {})
+            jira_ticket = state.get("jira_ticket", {})
+            findings = state.get("agent_findings", [])
+            
+        # Run agents in parallel
+        doc_task = generate_documentation(pr_metadata, jira_ticket, findings)
+        test_task = generate_tests(pr_metadata, jira_ticket)
+        
+        doc_content, test_content = await asyncio.gather(doc_task, test_task)
+        
+        # Create Doc PR
+        repo_owner = pr_metadata.get("repo_owner")
+        repo_name = pr_metadata.get("repo_name")
+        base_branch = pr_metadata.get("branch", "main")
+        
+        doc_branch = f"aerp/docs/{review_id[:8]}"
+        doc_files = doc_content if isinstance(doc_content, dict) else {}
+        if doc_files:
+            await create_pull_request(
+                repo_owner, repo_name, doc_branch, base_branch,
+                title="AERP Auto-Generated Documentation Updates",
+                body="Inline documentation and README updates generated based on approved PR.",
+                files=doc_files
+            )
+        
+        # Create Test PR
+        test_branch = f"aerp/tests/{review_id[:8]}"
+        test_files = {"tests/test_aerp_auto.py": test_content}
+        await create_pull_request(
+            repo_owner, repo_name, test_branch, base_branch,
+            title="AERP Auto-Generated Tests",
+            body="Tests generated based on approved review changes.",
+            files=test_files
+        )
+        
+        logger.info("Artifact PRs created successfully", review_id=review_id)
+
+    try:
+        asyncio.run(_run_agents())
+    except Exception as e:
+        logger.error("Artifact generation failed", error=str(e), exc_info=True)
+        raise self.retry(exc=e)
