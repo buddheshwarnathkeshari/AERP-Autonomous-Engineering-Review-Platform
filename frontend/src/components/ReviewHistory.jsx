@@ -67,6 +67,11 @@ export default function ReviewHistory() {
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                     {new Date(review.created_at).toLocaleString()}
+                    {review.llm_provider && (
+                      <span style={{ marginLeft: '0.5rem', padding: '0.1rem 0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', fontSize: '0.65rem', textTransform: 'capitalize' }}>
+                        {review.llm_provider === 'ollama' ? review.llm_model : review.llm_provider}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

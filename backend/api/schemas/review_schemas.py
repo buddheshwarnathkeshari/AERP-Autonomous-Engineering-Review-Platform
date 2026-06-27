@@ -78,3 +78,5 @@ class ReviewStatusResponse(BaseModel):
     risk_score: Optional[int] = None
     recommendation: Optional[str] = None
     error: Optional[str] = None
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None

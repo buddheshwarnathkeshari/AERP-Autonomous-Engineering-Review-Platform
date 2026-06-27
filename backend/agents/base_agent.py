@@ -228,11 +228,36 @@ class BaseAgent(ABC):
                     confidence=0.9,
                 )
             else:
+                from backend.models.findings import Recommendation
                 # Final call: get structured AgentReport
-                report: AgentReport = await llm.ainvoke([
+                report = None
+                current_messages = [
                     SystemMessage(content=self.system_prompt),
                     HumanMessage(content=enriched_human),
-                ])
+                ]
+                
+                for attempt in range(3):
+                    try:
+                        report = await llm.ainvoke(current_messages)
+                        if report is not None:
+                            break
+                        # If None, the parser failed silently
+                        current_messages.append(
+                            HumanMessage(content="You failed to output valid JSON matching the schema. Please output strictly valid JSON matching the exact schema with NO preamble text.")
+                        )
+                    except Exception as parse_error:
+                        current_messages.append(
+                            HumanMessage(content=f"Your JSON output had a validation error: {str(parse_error)}. Please fix the syntax and output strictly valid JSON.")
+                        )
+                
+                if report is None:
+                    # Fallback if all 3 attempts fail
+                    report = AgentReport(
+                        findings=[],
+                        overall_assessment=f"JSON Parsing Failed after 3 attempts with {self.agent_name}. The LLM output could not be parsed.",
+                        recommendation=Recommendation.APPROVE_WITH_COMMENTS,
+                        confidence=0.0
+                    )
 
             elapsed = round(time.time() - start_time, 2)
             logger.info(

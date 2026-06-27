@@ -74,7 +74,30 @@ class ConsensusAgent:
                     confidence_in_assessment=0.95,
                 )
             else:
-                report: ConsensusReport = await llm.ainvoke(messages)
+                report = None
+                current_messages = list(messages)
+                for attempt in range(3):
+                    try:
+                        report = await llm.ainvoke(current_messages)
+                        if report is not None:
+                            break
+                        current_messages.append(
+                            HumanMessage(content="You failed to output valid JSON matching the schema. Please output strictly valid JSON matching the exact schema with NO preamble text.")
+                        )
+                    except Exception as parse_error:
+                        current_messages.append(
+                            HumanMessage(content=f"Your JSON output had a validation error: {str(parse_error)}. Please fix the syntax and output strictly valid JSON.")
+                        )
+                        
+                if report is None:
+                    from backend.models.findings import Recommendation
+                    report = ConsensusReport(
+                        final_findings=[],
+                        risk_score=0,
+                        overall_assessment="JSON Parsing Failed after 3 attempts with consensus_agent. The LLM output could not be parsed.",
+                        recommendation=Recommendation.APPROVE_WITH_COMMENTS,
+                        confidence_in_assessment=0.0
+                    )
 
             # Strict Policy: If risk score triggers HITL (>40), always REQUEST_CHANGES
             if report.risk_score > 40:
