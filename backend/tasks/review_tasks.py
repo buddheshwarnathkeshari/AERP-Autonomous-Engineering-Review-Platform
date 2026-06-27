@@ -61,13 +61,37 @@ def run_review_task(self, review_id: str, pr_url: str, jira_url: str = None, doc
             doc_url=doc_url,
         )
 
-        # Run the LangGraph workflow
-        config = {"configurable": {"thread_id": review_id}}
+        # Extract async graph execution to inner function to use `async with`
+        async def _run_langgraph():
+            from backend.graph.workflow import create_workflow
+            from langgraph.checkpoint.redis import AsyncRedisSaver
+            
+            config = {"configurable": {"thread_id": review_id}}
+            async with AsyncRedisSaver.from_conn_string(settings.redis_url) as checkpointer:
+                wf = create_workflow(checkpointer)
+                await wf.ainvoke(initial_state, config=config)
+                
+                # Check if the workflow is paused
+                graph_state = await wf.aget_state(config)
+                if graph_state.next:
+                    return graph_state.values, "paused"
+                return graph_state.values, "completed"
 
         # asyncio.run bridges the sync Celery task and async LangGraph graph
-        final_state = asyncio.run(
-            workflow.ainvoke(initial_state, config=config)
-        )
+        final_state, exec_status = asyncio.run(_run_langgraph())
+        
+        if exec_status == "paused":
+            # The workflow paused at the HITL node!
+            asyncio.run(_update_review_status(review_id, "paused_for_review"))
+            logger.warning("Workflow paused for Human-in-the-Loop review", review_id=review_id)
+            
+            # Send Slack notification
+            consensus_res = final_state.get("consensus_result") or {}
+            risk_score = consensus_res.get("risk_score", 0)
+            from backend.utils.slack_tool import send_slack_notification
+            asyncio.run(send_slack_notification(review_id, pr_url, risk_score))
+            
+            return {"status": "paused_for_review", "review_id": review_id}
 
         # Check if workflow completed with an error
         if final_state.get("error"):

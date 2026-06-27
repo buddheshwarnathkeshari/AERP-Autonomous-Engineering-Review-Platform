@@ -62,6 +62,21 @@ async def fetch_pr_data(pr_url: str) -> dict:
     owner, repo_name, pr_number = parse_pr_url(pr_url)
     logger.info("Fetching PR from GitHub", owner=owner, repo=repo_name, pr=pr_number)
 
+    if owner == "fake":
+        return {
+            "pr_number": pr_number,
+            "title": "Mock PR for Testing",
+            "description": "This is a mock PR.",
+            "author": "dev1",
+            "branch": "feature/mock",
+            "base_branch": "main",
+            "repo_owner": owner,
+            "repo_name": repo_name,
+            "changed_files": ["backend/utils/llm_factory.py"],
+            "diff": "--- a/backend/utils/llm_factory.py\n+++ b/backend/utils/llm_factory.py\n@@ -1,1 +1,2 @@\n-print('hello')\n+print('world')",
+            "commit_messages": ["Initial commit"],
+        }
+
     gh = get_github_client()
     repo = gh.get_repo(f"{owner}/{repo_name}")
     pr = repo.get_pull(pr_number)
@@ -97,6 +112,47 @@ async def fetch_pr_data(pr_url: str) -> dict:
         "diff": diff,
         "commit_messages": commit_messages,
     }
+
+
+async def post_pr_comments(pr_url: str, findings: list) -> str:
+    """
+    Posts the final review findings as a general issue comment on the PR.
+    """
+    owner, repo_name, pr_number = parse_pr_url(pr_url)
+    logger.info("Posting review comments to GitHub", owner=owner, repo=repo_name, pr=pr_number)
+
+    if owner == "fake":
+        logger.info("Mock PR detected. Skipping actual GitHub API call.")
+        return "https://github.com/fake/repo/pull/1#issuecomment-fake"
+    gh = get_github_client()
+    repo = gh.get_repo(f"{owner}/{repo_name}")
+    pr = repo.get_pull(pr_number)
+
+    if not findings:
+        body = "## AERP Code Review\n\n✅ Everything looks good! No major issues found."
+    else:
+        body = "## AERP Code Review Findings\n\n"
+        for finding in findings:
+            # We assume findings are instances of CodeFinding Pydantic models
+            title = getattr(finding, "title", "Issue")
+            severity = getattr(finding, "severity", "medium").upper()
+            desc = getattr(finding, "description", "")
+            file_path = getattr(finding, "file_path", "General")
+            
+            body += f"### [{severity}] {title}\n"
+            body += f"**File:** `{file_path}`\n\n"
+            body += f"{desc}\n\n"
+            
+            if hasattr(finding, "evidence") and finding.evidence:
+                body += f"**Evidence:**\n```\n{finding.evidence}\n```\n\n"
+
+    try:
+        comment = pr.create_issue_comment(body)
+        logger.info("Comment posted successfully", url=comment.html_url)
+        return comment.html_url
+    except GithubException as e:
+        logger.error("Failed to post comment", error=str(e))
+        return f"Error: {e.data}"
 
 
 # ── LangChain Tools (for agent use) ──────────────────────────────────────────

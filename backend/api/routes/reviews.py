@@ -50,19 +50,33 @@ async def start_review(request: StartReviewRequest):
     review_id = str(uuid.uuid4())
     logger.info("Starting review", review_id=review_id, pr_url=request.pr_url)
 
+    provider = settings.llm_provider.lower() or "gemini"
+    if provider == "openai":
+        model = settings.openai_model
+    elif provider == "anthropic":
+        model = settings.anthropic_model
+    elif provider == "ollama":
+        import os
+        model = os.getenv("OLLAMA_MODEL", "llama3.1")
+    else:
+        provider = "gemini"
+        model = settings.gemini_model
+
     # Create the review record in the database
     conn_string = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(conn_string)
     try:
         await conn.execute(
             """
-            INSERT INTO reviews (id, pr_url, jira_url, doc_url, status)
-            VALUES ($1, $2, $3, $4, 'queued')
+            INSERT INTO reviews (id, pr_url, jira_url, doc_url, status, llm_provider, llm_model)
+            VALUES ($1, $2, $3, $4, 'queued', $5, $6)
             """,
             review_id,
             request.pr_url,
             request.jira_url,
             request.doc_url,
+            provider,
+            model,
         )
     finally:
         await conn.close()
@@ -188,3 +202,62 @@ async def get_review_findings(review_id: str, severity: str = None):
         "total": len(findings),
         "findings": findings,
     }
+
+
+from pydantic import BaseModel
+class ApproveReviewRequest(BaseModel):
+    comment: str = ""
+
+@router.post("/{review_id}/approve")
+async def approve_review(review_id: str, request: ApproveReviewRequest):
+    """
+    Resume a paused workflow (HITL) by explicitly approving it.
+    This routes the graph to the output node.
+    """
+    from backend.graph.workflow import create_workflow
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    
+    # Update DB status
+    conn_string = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(conn_string)
+    try:
+        await conn.execute(
+            "UPDATE reviews SET status=$1, updated_at=NOW() WHERE id=$2",
+            "resuming", review_id,
+        )
+    finally:
+        await conn.close()
+        
+    config = {"configurable": {"thread_id": review_id}}
+    
+    try:
+        async with AsyncRedisSaver.from_conn_string(settings.redis_url) as checkpointer:
+            wf = create_workflow(checkpointer)
+            
+            state = await wf.aget_state(config)
+            if not state.next:
+                raise HTTPException(status_code=400, detail="Workflow is not paused.")
+                
+            # Resume execution
+            final_state = await wf.ainvoke(None, config=config)
+            
+            consensus_result = final_state.get("consensus_result") or {}
+            recommendation = consensus_result.get("recommendation", "approve_with_comments")
+            risk_score = consensus_result.get("risk_score", 0)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to resume workflow", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to resume workflow.")
+        
+    # Update status to complete
+    conn = await asyncpg.connect(conn_string)
+    try:
+        await conn.execute(
+            "UPDATE reviews SET status=$1, updated_at=NOW(), completed_at=NOW(), risk_score=$2, recommendation=$3 WHERE id=$4",
+            "complete", risk_score, recommendation, review_id,
+        )
+    finally:
+        await conn.close()
+        
+    return {"status": "resumed_and_completed", "review_id": review_id}

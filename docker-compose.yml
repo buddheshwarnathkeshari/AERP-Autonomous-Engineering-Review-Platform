@@ -44,7 +44,7 @@ services:
   #   2. LangGraph checkpointer — stores paused workflow state (HITL save-game)
   # They use different Redis key prefixes so they don't interfere.
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack-server:latest
     container_name: aerp_redis
     restart: unless-stopped
     ports:
@@ -76,6 +76,15 @@ services:
       - JIRA_API_TOKEN=${JIRA_API_TOKEN}
       - GEMINI_MODEL=${GEMINI_MODEL}
       - GEMINI_EMBEDDING_MODEL=${GEMINI_EMBEDDING_MODEL}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
       - APP_ENV=${APP_ENV}
       - LOG_LEVEL=${LOG_LEVEL}
       - MIN_CONFIDENCE_FOR_PR_COMMENT=${MIN_CONFIDENCE_FOR_PR_COMMENT}
@@ -113,6 +122,15 @@ services:
       - JIRA_API_TOKEN=${JIRA_API_TOKEN}
       - GEMINI_MODEL=${GEMINI_MODEL}
       - GEMINI_EMBEDDING_MODEL=${GEMINI_EMBEDDING_MODEL}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
       - APP_ENV=${APP_ENV}
       - MIN_CONFIDENCE_FOR_PR_COMMENT=${MIN_CONFIDENCE_FOR_PR_COMMENT}
       - AGENT_MAX_ITERATIONS=${AGENT_MAX_ITERATIONS}

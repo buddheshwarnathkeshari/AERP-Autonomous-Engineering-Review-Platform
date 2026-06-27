@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS reviews (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at    TIMESTAMPTZ,
-    error           TEXT
+    error           TEXT,
+    llm_provider    TEXT,
+    llm_model       TEXT
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -82,7 +84,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     source      TEXT NOT NULL,      -- "github_pr" | "jira" | "google_doc" | "repo_file"
     content     TEXT NOT NULL,      -- The actual text chunk
     metadata    JSONB,              -- File path, page number, section, etc.
-    embedding   vector(3072),       -- The 3072-dimensional vector
+    embedding   vector,             -- Variable dimension vector
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
