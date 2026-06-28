@@ -8,7 +8,7 @@
 ![Live Demo](docs/assets/Demo.gif)
 
 <a href="https://github.com/buddheshwarnathkeshari/aerp/releases/download/V0.0.0/AERP-DEMO.mov">
-  <img src="https://img.shields.io/badge/Download_High_Quality_Demo-100000?style=for-the-badge&logo=github&logoColor=white" alt="Download High Quality Demo" />
+  <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_Download_High_Quality_Demo-100000?style=for-the-badge" alt="Download High Quality Demo" />
 </a>
 
 
