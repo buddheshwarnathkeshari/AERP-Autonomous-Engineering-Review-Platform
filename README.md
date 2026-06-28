@@ -1,11 +1,12 @@
 # AERP (Autonomous Engineering Review Platform)
 
 ![AERP Dashboard](docs/assets/StartCodeReview.png)
+<img src="docs/assets/Reviewing.png" width="800" alt="Review Dashboard">
 
 ## 🎥 Live Demo
 
-<video src="https://github.com/buddheshwarnathkeshari/aerp/raw/main/docs/assets/Demo.mp4" controls="controls" width="100%"></video>
-
+[![Live Demo](docs/assets/StartCodeReview.png)](https://github.com/buddheshwarnathkeshari/aerp/raw/main/docs/assets/Demo.mp4)
+*Click the image above to watch the full video demonstration.*
 
 
 ## 🚀 What it does
