@@ -45,3 +45,4 @@ credentials/
 # Dev leftovers
 test_embeddings.py
 uploads/
+scratch/

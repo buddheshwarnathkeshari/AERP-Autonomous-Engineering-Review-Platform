@@ -347,6 +347,7 @@ async def post_finding_to_pr(
         "severity": finding.severity,
         "description": finding.description,
         "file_path": finding.file_path,
+        "line_number": finding.line_number,
         "evidence": finding.evidence,
         "included_in_pr": finding.is_posted_to_github,
     }
